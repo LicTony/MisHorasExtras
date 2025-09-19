@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -20,9 +20,14 @@ namespace MisHorasExtras
         public MainWindow()
         {
             InitializeComponent();
-            LblStatus.Content = "";
+            SetStatus("");
         }
 
+        private void SetStatus(string message, bool isError = false)
+        {
+            LblStatus.Content = message;
+            LblStatus.Foreground = isError ? System.Windows.Media.Brushes.Red : System.Windows.Media.Brushes.Black;
+        }
 
         /// <summary>
         /// Ejecuta las acciones sobre el excel MisHorasExtras.xlsm
@@ -37,21 +42,21 @@ namespace MisHorasExtras
 
             if (!System.IO.File.Exists(excelFilePath))
             {
-                LblStatus.Content = $"Error: No se encontró el archivo '{excelFileName}'.";
+                SetStatus($"Error: No se encontró el archivo '{excelFileName}'.", true);
                 return;
             }
 
             try
             {
                 using var excelManager = new ExcelManager(excelFilePath);
-                LblStatus.Content = "Archivo Excel abierto correctamente.";
+                SetStatus("Archivo Excel abierto correctamente.");
 
                 bool entradaExiste = excelManager.ExisteTab("Entrada");
                 bool salidaExiste = excelManager.ExisteTab("Salida");
 
                 if (entradaExiste && salidaExiste)
                 {
-                    LblStatus.Content = "Pestañas 'Entrada' y 'Salida' encontradas.";
+                    SetStatus("Pestañas 'Entrada' y 'Salida' encontradas.");
                 
                     // Obtener la hoja de trabajo 'Entrada'
                     var hojaEntrada = excelManager.ObtenerHojaDeTrabajo("Entrada");
@@ -61,11 +66,11 @@ namespace MisHorasExtras
 
                     if (rowCount <= 1) // Si hay al menos una fila (encabezado)
                     {
-                        LblStatus.Content = "Pestaña 'Entrada' está vacía o solo tiene encabezado.";
+                        SetStatus("Pestaña 'Entrada' está vacía o solo tiene encabezado.");
                         return; // Salir del método si no hay datos para procesar
                     }
 
-                    LblStatus.Content = $"Procesando {rowCount - 1} registros en la pestaña 'Entrada'...";
+                    SetStatus($"Procesando {rowCount - 1} registros en la pestaña 'Entrada'...");
 
                     // Recorrer la columna A desde la fila 2
                     for (int fila = 2; fila <= rowCount; fila++)
@@ -85,25 +90,46 @@ namespace MisHorasExtras
                             // No es una fecha válida, colocar "Fecha invalida" en la columna E
                             excelManager.EstablecerValorCelda("Entrada", fila, 5, "Fecha invalida"); // Columna E
                         }
-                        LblStatus.Content = $"Procesando fila {fila - 1} de {rowCount - 1}...";
+                        SetStatus($"Procesando fila {fila - 1} de {rowCount - 1}...");
+
+                        bool horaDesdeValida = TimeOnly.TryParse(celdaBHoraDesde, CultureInfo.CurrentCulture, out TimeOnly horaDesde);
+                        bool horaHastaValida = TimeOnly.TryParse(celdaCHoraHasta, CultureInfo.CurrentCulture, out TimeOnly horaHasta);
+
+                        if (!horaDesdeValida)
+                        {
+                            excelManager.EstablecerValorCelda("Entrada", fila, 6, "Hora desde invalida"); // Columna F
+                        }
+                        else if (!horaHastaValida)
+                        {
+                            excelManager.EstablecerValorCelda("Entrada", fila, 6, "Hora hasta invalida"); // Columna F
+                        }
+                        else if (horaDesde >= horaHasta)
+                        {
+                            excelManager.EstablecerValorCelda("Entrada", fila, 6, "Hora desde debe ser menor a Hora hasta"); // Columna F
+                        }
+                        else
+                        {
+                            excelManager.EstablecerValorCelda("Entrada", fila, 6, ""); // Limpiar la celda de error si no hubo errores
+                        }
 
 
-                        //todo validar que la variable celdaBHoraDesde sea un fomatato de hora valido
-                        //todo validar que la variable celdaCHoraHasta sea un fomatato de hora valido
-                        //todo validar que celdaBHoraDesde sea menor a celdaCHoraHasta
-
+                        if (horaDesdeValida && horaHastaValida) 
+                        { 
+                            //todo validar que la frajan  hora desde a hora hasta sea menor o mayor a la franja horaria 09:00 a 16:42                        
+                        }
                     }
 
                     // Guardar los cambios en el archivo Excel
                     excelManager.Guardar();
-                    LblStatus.Content = "Proceso completado. Archivo Excel guardado con los días de la semana.";
+                    SetStatus("Proceso completado. Archivo Excel guardado con los días de la semana y validaciones.");
+
                 }
                 else
                 {
                     string mensaje = "Error: Pestañas no encontradas. ";
                     if (!entradaExiste) mensaje += "Falta 'Entrada'. ";
                     if (!salidaExiste) mensaje += "Falta 'Salida'.";
-                    LblStatus.Content = mensaje;
+                    SetStatus(mensaje, true);
                 }
             }
             catch (System.IO.IOException ex)
@@ -114,16 +140,16 @@ namespace MisHorasExtras
                 // Un mensaje común para archivo en uso es 'The process cannot access the file because it is being used by another process.'
                 if (ex.Message.Contains("being used by another process") || ex.HResult == -2147024864) // 0x80070020 ERROR_SHARING_VIOLATION
                 {
-                    LblStatus.Content = "Error: El archivo Excel está abierto en otra aplicación. Ciérrelo e intente de nuevo.";
+                    SetStatus("Error: El archivo Excel está abierto en otra aplicación. Ciérrelo e intente de nuevo.", true);
                 }
                 else
                 {
-                    LblStatus.Content = $"Error de E/S al procesar el archivo: {ex.Message}";
+                    SetStatus($"Error de E/S al procesar el archivo: {ex.Message}", true);
                 }
             }
             catch (Exception ex)
             {
-                LblStatus.Content = $"Error inesperado al procesar el archivo: {ex.Message}";
+                SetStatus($"Error inesperado al procesar el archivo: {ex.Message}", true);
             }
         }
     }

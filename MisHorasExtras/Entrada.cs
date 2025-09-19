@@ -12,9 +12,9 @@ namespace MisHorasExtras
 
         public DateOnly Fecha { get; set; }
 
-        public DateTime HoraDesde { get; set; }
+        public TimeOnly HoraDesde { get; set; }
 
-        public DateTime HoraHasta { get; set; }
+        public TimeOnly HoraHasta { get; set; }
 
         public string Detalle { get; set; } = string.Empty;
     }

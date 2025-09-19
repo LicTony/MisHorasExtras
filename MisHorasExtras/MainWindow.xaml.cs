@@ -143,17 +143,12 @@ namespace MisHorasExtras
                             entradas.Add(new Entrada
                             {
                                 Fecha = DateOnly.FromDateTime(fecha),
-                                HoraDesde = new DateTime(fecha.Year, fecha.Month, fecha.Day, 
-                                    horaDesde.Hour, horaDesde.Minute, horaDesde.Second,DateTimeKind.Local),
-                                HoraHasta = new DateTime(fecha.Year, fecha.Month, fecha.Day, 
-                                    horaHasta.Hour, horaHasta.Minute, horaHasta.Second, DateTimeKind.Local)
+                                HoraDesde = horaDesde,
+                                HoraHasta =horaHasta
                             });
                         }
 
-                        //todo validar que en entradas si una fecha se repite no esten solapados sus horarios y que no haya un hueco  entre el horario anterior a
-                        // 9 a 16:42 y tampoco haya un huevo despues
-
-
+                        
 
                         // Escribir todos los errores concatenados en la Columna F
                         if (erroresFila.Length > 0)
@@ -166,6 +161,65 @@ namespace MisHorasExtras
                         }
 
                         SetStatus($"Procesando fila {fila - 1} de {rowCount - 1}...");
+                    }
+
+                    // Validar solapamientos y huecos después de procesar todas las entradas
+                    var entradasPorFecha = entradas.GroupBy(e => e.Fecha);
+
+                    foreach (var grupoFecha in entradasPorFecha)
+                    {
+                        var entradasOrdenadas = grupoFecha.OrderBy(e => e.HoraDesde).ToList();
+
+                        for (int i = 0; i < entradasOrdenadas.Count; i++)
+                        {
+                            StringBuilder erroresFilaG = new();
+                            var entradaActual = entradasOrdenadas[i];
+
+                            // Validar solapamiento con la siguiente entrada
+                            if (i < entradasOrdenadas.Count - 1)
+                            {
+                                var siguienteEntrada = entradasOrdenadas[i + 1];
+                                if (entradaActual.HoraHasta > siguienteEntrada.HoraDesde)
+                                {
+                                    erroresFilaG.Append("Horario solapado con la siguiente entrada; ");
+                                }
+                            }
+
+                            // Validar huecos entre entradas y la jornada laboral (9:00 - 16:42)
+                            TimeOnly jornadaInicio = new(9, 0);
+                            TimeOnly jornadaFin = new(16, 42);
+
+                            // Si es la primera entrada del día y no empieza a las 9:00, o si hay un hueco entre la jornada y la primera entrada
+                            if (i == 0 && entradaActual.HoraDesde > jornadaInicio)
+                            {
+                                erroresFilaG.Append("Hueco antes de las 09:00; ");
+                            }
+
+                            // Si no es la primera entrada, validar hueco con la entrada anterior
+                            if (i > 0)
+                            {
+                                var entradaAnterior = entradasOrdenadas[i - 1];
+                                if (entradaActual.HoraDesde > entradaAnterior.HoraHasta)
+                                {
+                                    erroresFilaG.Append("Hueco entre entradas; ");
+                                }
+                            }
+
+                            // Si es la última entrada del día y no termina a las 16:42, o si hay un hueco entre la última entrada y el fin de jornada
+                            if (i == entradasOrdenadas.Count - 1 && entradaActual.HoraHasta < jornadaFin)
+                            {
+                                erroresFilaG.Append("Hueco después de las 16:42; ");
+                            }
+
+                            if (erroresFilaG.Length > 0)
+                            {
+                                excelManager.EstablecerValorCelda("Entrada", entradaActual.RenglonDelExcel, 7, erroresFilaG.ToString().TrimEnd(' ', ';'));
+                            }
+                            else
+                            {
+                                excelManager.EstablecerValorCelda("Entrada", entradaActual.RenglonDelExcel, 7, ""); // Limpiar la celda G si no hay errores
+                            }
+                        }
                     }
 
                     // Guardar los cambios en el archivo Excel

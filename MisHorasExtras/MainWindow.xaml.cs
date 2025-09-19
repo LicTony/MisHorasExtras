@@ -9,6 +9,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using System.Collections.Generic; // Added for List<Entrada>
 
 namespace MisHorasExtras
 {
@@ -39,6 +40,7 @@ namespace MisHorasExtras
             string excelFileName = "MisHorasExtras.xlsm";
             string executablePath = AppDomain.CurrentDomain.BaseDirectory;
             string excelFilePath = System.IO.Path.Combine(executablePath, excelFileName);
+            List<Entrada> entradas = []; 
 
             if (!System.IO.File.Exists(excelFilePath))
             {
@@ -83,14 +85,16 @@ namespace MisHorasExtras
                     // Recorrer la columna A desde la fila 2
                     for (int fila = 2; fila <= rowCount; fila++)
                     {
-                        string celdaAFecha = excelManager.ObtenerValorCelda("Entrada", fila, 1)??""; // Columna A
+                        string celdaAFecha = excelManager.ObtenerValorCelda("Entrada", fila, 1)?? ""; // Columna A
                         string celdaBHoraDesde = excelManager.ObtenerValorCelda("Entrada", fila, 2) ?? ""; // Columna B
                         string celdaCHoraHasta = excelManager.ObtenerValorCelda("Entrada", fila, 3) ?? ""; // Columna C
 
-                        StringBuilder erroresFila = new StringBuilder();
+                        StringBuilder erroresFila = new();
+                        
 
                         // 1. Validación de fecha (Columna A -> Columna E y errores a F)
-                        if (DateTime.TryParse(celdaAFecha, CultureInfo.CurrentCulture, out DateTime fecha))
+                        bool fechaValida = DateTime.TryParse(celdaAFecha, CultureInfo.CurrentCulture, out DateTime fecha);
+                        if (fechaValida)
                         {
                             string diaSemana = fecha.ToString("dddd");
                             excelManager.EstablecerValorCelda("Entrada", fila, 5, diaSemana); // Columna E
@@ -119,9 +123,9 @@ namespace MisHorasExtras
 
                         // 3. Validación de franja horaria (si las horas son válidas y horaDesde < horaHasta -> errores a F)
                         // Solo aplicar esta validación si la fecha es válida y es un día de semana (Lunes a Viernes)
-                        if (DateTime.TryParse(celdaAFecha, CultureInfo.CurrentCulture, out DateTime fechaValidacionFranja) &&
-                            fechaValidacionFranja.DayOfWeek != DayOfWeek.Saturday &&
-                            fechaValidacionFranja.DayOfWeek != DayOfWeek.Sunday &&
+                        if (fechaValida && // Use fechaValida here
+                            fecha.DayOfWeek != DayOfWeek.Saturday &&
+                            fecha.DayOfWeek != DayOfWeek.Sunday &&
                             horaDesdeValida && horaHastaValida && horaDesde < horaHasta)
                         {
                             TimeOnly jornadaInicio = new(9, 0);
@@ -132,6 +136,24 @@ namespace MisHorasExtras
                                 erroresFila.Append("Dentro de la franja horaria (09:00 - 16:42); ");
                             }
                         }
+
+                        // Si la fila no tiene errores hasta ahora (erroresFila.Length == 0) agregar los datos a la lista entradas
+                        if (erroresFila.Length == 0)
+                        {
+                            entradas.Add(new Entrada
+                            {
+                                Fecha = DateOnly.FromDateTime(fecha),
+                                HoraDesde = new DateTime(fecha.Year, fecha.Month, fecha.Day, 
+                                    horaDesde.Hour, horaDesde.Minute, horaDesde.Second,DateTimeKind.Local),
+                                HoraHasta = new DateTime(fecha.Year, fecha.Month, fecha.Day, 
+                                    horaHasta.Hour, horaHasta.Minute, horaHasta.Second, DateTimeKind.Local)
+                            });
+                        }
+
+                        //todo validar que en entradas si una fecha se repite no esten solapados sus horarios y que no haya un hueco  entre el horario anterior a
+                        // 9 a 16:42 y tampoco haya un huevo despues
+
+
 
                         // Escribir todos los errores concatenados en la Columna F
                         if (erroresFila.Length > 0)
@@ -145,9 +167,6 @@ namespace MisHorasExtras
 
                         SetStatus($"Procesando fila {fila - 1} de {rowCount - 1}...");
                     }
-
-
-                    //todo ir controlando si el renglon tuvo algun error en caso de no tener ningun error poner el a columna G "OK" en caso contrario poner "CON PROBLEMA"
 
                     // Guardar los cambios en el archivo Excel
                     excelManager.Guardar();
@@ -167,10 +186,6 @@ namespace MisHorasExtras
             }
             catch (System.IO.IOException ex)
             {
-                // Verificar si el error es porque el archivo está en uso
-                // Esto es una heurística, ya que el código de error exacto puede variar
-                // o no ser directamente accesible en todas las versiones de .NET o sistemas operativos.
-                // Un mensaje común para archivo en uso es 'The process cannot access the file because it is being used by another process.'
                 if (ex.Message.Contains("being used by another process") || ex.HResult == -2147024864) // 0x80070020 ERROR_SHARING_VIOLATION
                 {
                     SetStatus("Error: El archivo Excel está abierto en otra aplicación. Ciérrelo e intente de nuevo.", true);

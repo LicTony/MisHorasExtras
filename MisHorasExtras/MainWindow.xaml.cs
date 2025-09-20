@@ -59,10 +59,10 @@ namespace MisHorasExtras
                 if (entradaExiste && salidaExiste)
                 {
                     SetStatus("Pestañas 'Entrada' y 'Salida' encontradas.");
-                
+
                     // Obtener la hoja de trabajo 'Entrada'
                     var hojaEntrada = excelManager.ObtenerHojaDeTrabajo("Entrada");
-                
+
                     // Contar el número de filas utilizadas en la hoja 'Entrada'
                     int rowCount = hojaEntrada.LastRowUsed()?.RowNumber() ?? 0;
 
@@ -85,12 +85,12 @@ namespace MisHorasExtras
                     // Recorrer la columna A desde la fila 2
                     for (int fila = 2; fila <= rowCount; fila++)
                     {
-                        string celdaAFecha = excelManager.ObtenerValorCelda("Entrada", fila, 1)?? ""; // Columna A
+                        string celdaAFecha = excelManager.ObtenerValorCelda("Entrada", fila, 1) ?? ""; // Columna A
                         string celdaBHoraDesde = excelManager.ObtenerValorCelda("Entrada", fila, 2) ?? ""; // Columna B
                         string celdaCHoraHasta = excelManager.ObtenerValorCelda("Entrada", fila, 3) ?? ""; // Columna C
 
                         StringBuilder erroresFila = new();
-                        
+
 
                         // 1. Validación de fecha (Columna A -> Columna E y errores a F)
                         bool fechaValida = DateTime.TryParse(celdaAFecha, CultureInfo.CurrentCulture, out DateTime fecha);
@@ -144,11 +144,11 @@ namespace MisHorasExtras
                             {
                                 Fecha = DateOnly.FromDateTime(fecha),
                                 HoraDesde = horaDesde,
-                                HoraHasta =horaHasta
+                                HoraHasta = horaHasta
                             });
                         }
 
-                        
+
 
                         // Escribir todos los errores concatenados en la Columna F
                         if (erroresFila.Length > 0)
@@ -164,62 +164,16 @@ namespace MisHorasExtras
                     }
 
                     // Validar solapamientos y huecos después de procesar todas las entradas
-                    var entradasPorFecha = entradas.GroupBy(e => e.Fecha);
-
                     StringBuilder erroresFilaG = new();
+                    //Limpiar celda Ultima celda G donde se acumulan los errores de huecos y solapamientos
+                    excelManager.EstablecerValorCelda("Entrada", rowCount + 1, 7, "");
 
-                    foreach (var grupoFecha in entradasPorFecha)
-                    {
-                        var entradasOrdenadas = grupoFecha.OrderBy(e => e.HoraDesde).ToList();
 
-                        for (int i = 0; i < entradasOrdenadas.Count; i++)
-                        {
-                            
-                            var entradaActual = entradasOrdenadas[i];
 
-                            // Validar solapamiento con la siguiente entrada
-                            if (i < entradasOrdenadas.Count - 1)
-                            {
-                                var siguienteEntrada = entradasOrdenadas[i + 1];
-                                if (entradaActual.HoraHasta > siguienteEntrada.HoraDesde)
-                                {
-                                    erroresFilaG.Append($"{Environment.NewLine}Horario solapado con la siguiente entrada en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
-                                }
-                            }
+                    //todo 
+                    var entradasPorFecha = entradas.GroupBy(e => e.Fecha);
+                    AnalizarHuecosySolapamientosMismaFecha(excelManager, rowCount, erroresFilaG, entradasPorFecha);
 
-                            // Validar huecos entre entradas y la jornada laboral (9:00 - 16:42)
-                            TimeOnly jornadaInicio = new(9, 0);
-                            TimeOnly jornadaFin = new(16, 42);
-
-                            // Si es la primera entrada del día y no empieza a las 9:00, o si hay un hueco entre la jornada y la primera entrada
-                            if (i == 0 && entradaActual.HoraDesde > jornadaInicio)
-                            {
-                                erroresFilaG.Append($"{Environment.NewLine}Hueco antes de las 09:00 en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
-                            }
-
-                            // Si no es la primera entrada, validar hueco con la entrada anterior
-                            if (i > 0)
-                            {
-                                var entradaAnterior = entradasOrdenadas[i - 1];
-                                if (entradaActual.HoraDesde > entradaAnterior.HoraHasta)
-                                {
-                                    erroresFilaG.Append($"{Environment.NewLine}Hueco entre entradas en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
-                                }
-                            }
-
-                            // Si es la última entrada del día y no termina a las 16:42, o si hay un hueco entre la última entrada y el fin de jornada
-                            if (i == entradasOrdenadas.Count - 1 && entradaActual.HoraHasta < jornadaFin)
-                            {
-                                erroresFilaG.Append($"{Environment.NewLine}Hueco después de las 16:42 en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
-                            }
-
-                            if (erroresFilaG.Length > 0)
-                            {
-                                excelManager.EstablecerValorCelda("Entrada", rowCount+1 , 7, erroresFilaG.ToString().TrimEnd(' ', ';'));
-                            }                        
-                        }
-                    }
-                    
 
                     // Guardar los cambios en el archivo Excel
                     excelManager.Guardar();
@@ -251,6 +205,67 @@ namespace MisHorasExtras
             catch (Exception ex)
             {
                 SetStatus($"Error inesperado al procesar el archivo: {ex.Message}", true);
+            }
+        }
+
+        private static void AnalizarHuecosySolapamientosMismaFecha(ExcelManager excelManager, int rowCount, StringBuilder erroresFilaG, IEnumerable<IGrouping<DateOnly, Entrada>> entradasPorFecha)
+        {
+            foreach (var grupoFecha in entradasPorFecha)
+            {
+                var entradasOrdenadas = grupoFecha.OrderBy(e => e.HoraDesde).ToList();
+
+                for (int i = 0; i < entradasOrdenadas.Count; i++)
+                {
+
+                    var entradaActual = entradasOrdenadas[i];
+
+                    // Validar solapamiento con la siguiente entrada
+                    if (i < entradasOrdenadas.Count - 1)
+                    {
+                        var siguienteEntrada = entradasOrdenadas[i + 1];
+                        if (entradaActual.HoraHasta > siguienteEntrada.HoraDesde)
+                        {
+                            erroresFilaG.Append($"{Environment.NewLine}Horario solapado con la siguiente entrada en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
+                        }
+                    }
+
+                    // Validar huecos entre entradas y la jornada laboral (9:00 - 16:42)
+                    TimeOnly jornadaInicio = new(9, 0);
+                    TimeOnly jornadaFin = new(16, 42);
+
+                    // Si es la primera entrada del día y no empieza a las 9:00, o si hay un hueco entre la jornada y la primera entrada
+                    if (i == 0 && entradaActual.HoraDesde > jornadaInicio)
+                    {
+                        erroresFilaG.Append($"{Environment.NewLine}Hueco antes de las 09:00 en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
+                    }
+
+                    // Si no es la primera entrada, validar hueco con la entrada anterior
+                    if (i > 0)
+                    {
+                        var entradaAnterior = entradasOrdenadas[i - 1];
+                        if (entradaActual.HoraDesde > entradaAnterior.HoraHasta)
+                        {
+                            erroresFilaG.Append($"{Environment.NewLine}Hueco entre entradas en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
+                        }
+                    }
+
+                    // Si es la última entrada del día y no termina a las 16:42, o si hay un hueco entre la última entrada y el fin de jornada
+                    if (i == entradasOrdenadas.Count - 1 && entradaActual.HoraHasta < jornadaFin)
+                    {
+                        erroresFilaG.Append($"{Environment.NewLine}Hueco después de las 16:42 en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
+                    }
+
+                    if (erroresFilaG.Length > 0)
+                    {
+                        string celdaGErrores = excelManager.ObtenerValorCelda("Entrada", rowCount + 1, 7) ?? "";
+                        if (string.IsNullOrEmpty(celdaGErrores))
+                            celdaGErrores = erroresFilaG.ToString().TrimEnd(' ', ';');
+                        else
+                            celdaGErrores = celdaGErrores + Environment.NewLine + erroresFilaG.ToString().TrimEnd(' ', ';');
+
+                        excelManager.EstablecerValorCelda("Entrada", rowCount + 1, 7, celdaGErrores);
+                    }
+                }
             }
         }
     }

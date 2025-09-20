@@ -133,7 +133,7 @@ namespace MisHorasExtras
 
                             if (horaDesde < jornadaFin && horaHasta > jornadaInicio)
                             {
-                                erroresFila.Append("Dentro de la franja horaria (09:00 - 16:42); ");
+                                erroresFila.Append("Dentro de la franja horaria  (L a V 09:00 - 16:42); ");
                             }
                         }
 
@@ -166,14 +166,15 @@ namespace MisHorasExtras
                     // Validar solapamientos y huecos después de procesar todas las entradas
                     var entradasPorFecha = entradas.GroupBy(e => e.Fecha);
 
-                    
+                    StringBuilder erroresFilaG = new();
+
                     foreach (var grupoFecha in entradasPorFecha)
                     {
                         var entradasOrdenadas = grupoFecha.OrderBy(e => e.HoraDesde).ToList();
 
                         for (int i = 0; i < entradasOrdenadas.Count; i++)
                         {
-                            StringBuilder erroresFilaG = new();
+                            
                             var entradaActual = entradasOrdenadas[i];
 
                             // Validar solapamiento con la siguiente entrada
@@ -182,7 +183,7 @@ namespace MisHorasExtras
                                 var siguienteEntrada = entradasOrdenadas[i + 1];
                                 if (entradaActual.HoraHasta > siguienteEntrada.HoraDesde)
                                 {
-                                    erroresFilaG.Append($"Horario solapado con la siguiente entrada en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
+                                    erroresFilaG.Append($"{Environment.NewLine}Horario solapado con la siguiente entrada en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
                                 }
                             }
 
@@ -193,7 +194,7 @@ namespace MisHorasExtras
                             // Si es la primera entrada del día y no empieza a las 9:00, o si hay un hueco entre la jornada y la primera entrada
                             if (i == 0 && entradaActual.HoraDesde > jornadaInicio)
                             {
-                                erroresFilaG.Append($"Hueco antes de las 09:00 en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
+                                erroresFilaG.Append($"{Environment.NewLine}Hueco antes de las 09:00 en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
                             }
 
                             // Si no es la primera entrada, validar hueco con la entrada anterior
@@ -202,19 +203,19 @@ namespace MisHorasExtras
                                 var entradaAnterior = entradasOrdenadas[i - 1];
                                 if (entradaActual.HoraDesde > entradaAnterior.HoraHasta)
                                 {
-                                    erroresFilaG.Append($"Hueco entre entradas en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
+                                    erroresFilaG.Append($"{Environment.NewLine}Hueco entre entradas en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
                                 }
                             }
 
                             // Si es la última entrada del día y no termina a las 16:42, o si hay un hueco entre la última entrada y el fin de jornada
                             if (i == entradasOrdenadas.Count - 1 && entradaActual.HoraHasta < jornadaFin)
                             {
-                                erroresFilaG.Append($"Hueco después de las 16:42 en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
+                                erroresFilaG.Append($"{Environment.NewLine}Hueco después de las 16:42 en {entradaActual.Fecha.ToString("dd/MM/yyyy")}; ");
                             }
 
                             if (erroresFilaG.Length > 0)
                             {
-                                excelManager.EstablecerValorCelda("Entrada", rowCount + 1, 7, erroresFilaG.ToString().TrimEnd(' ', ';'));
+                                excelManager.EstablecerValorCelda("Entrada", rowCount+1 , 7, erroresFilaG.ToString().TrimEnd(' ', ';'));
                             }                        
                         }
                     }

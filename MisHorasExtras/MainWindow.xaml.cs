@@ -19,6 +19,8 @@ namespace MisHorasExtras
     /// </summary>
     public partial class MainWindow : Window
     {
+        private static readonly string[] separator = ["; "];
+
         public MainWindow()
         {
             InitializeComponent();
@@ -237,15 +239,15 @@ namespace MisHorasExtras
                             var merged = new List<Entrada>();
                             var currentMerge = new Entrada
                             {
-                                Fecha = entradasOrdenadas.First().Fecha,
-                                HoraDesde = entradasOrdenadas.First().HoraDesde,
-                                HoraHasta = entradasOrdenadas.First().HoraHasta,
+                                Fecha = entradasOrdenadas[0].Fecha,
+                                HoraDesde = entradasOrdenadas[0].HoraDesde,
+                                HoraHasta = entradasOrdenadas[0].HoraHasta,
                                 Detalle = "" // Se construye durante la fusión
                             };
                             var motivos = new HashSet<string>();
-                            if (!string.IsNullOrWhiteSpace(entradasOrdenadas.First().Detalle))
+                            if (!string.IsNullOrWhiteSpace(entradasOrdenadas[0].Detalle))
                             {
-                                motivos.Add(entradasOrdenadas.First().Detalle);
+                                motivos.Add(entradasOrdenadas[0].Detalle);
                             }
 
                             for (int i = 1; i < entradasOrdenadas.Count; i++)
@@ -346,6 +348,50 @@ namespace MisHorasExtras
                                 }
                             }
 
+                            // Calcular horas 50% y 100%
+                            TimeSpan horas50 = TimeSpan.Zero;
+                            TimeSpan horas100 = TimeSpan.Zero;
+                            var horaCorteSabado = new TimeOnly(13, 0);
+
+                            foreach (var entrada in entradasDelDia)
+                            {
+                                switch (fecha.DayOfWeek)
+                                {
+                                    case DayOfWeek.Sunday:
+                                        horas100 += entrada.HoraHasta - entrada.HoraDesde;
+                                        break;
+
+                                    case DayOfWeek.Saturday:
+                                        if (entrada.HoraHasta <= horaCorteSabado) // Todas antes de las 13hs
+                                        {
+                                            horas50 += entrada.HoraHasta - entrada.HoraDesde;
+                                        }
+                                        else if (entrada.HoraDesde >= horaCorteSabado) // Todas después de las 13hs
+                                        {
+                                            horas100 += entrada.HoraHasta - entrada.HoraDesde;
+                                        }
+                                        else // Cruza las 13hs
+                                        {
+                                            horas50 += horaCorteSabado - entrada.HoraDesde;
+                                            horas100 += entrada.HoraHasta - horaCorteSabado;
+                                        }
+                                        break;
+
+                                    default: // Lunes a Viernes
+                                        horas50 += entrada.HoraHasta - entrada.HoraDesde;
+                                        break;
+                                }
+                            }
+
+                            if (horas50 > TimeSpan.Zero)
+                            {
+                                hojaSalida.Cell(filaActual, 8).Value = $"{(int)horas50.TotalHours:00}:{horas50.Minutes:00}";
+                            }
+                            if (horas100 > TimeSpan.Zero)
+                            {
+                                hojaSalida.Cell(filaActual, 9).Value = $"{(int)horas100.TotalHours:00}:{horas100.Minutes:00}";
+                            }
+
                             // Concatenar todos los motivos para el día
                             var motivosDelDia = grupoDia.Select(e => e.Detalle)
                                                         .Where(m => !string.IsNullOrWhiteSpace(m))
@@ -392,7 +438,6 @@ namespace MisHorasExtras
                 SetStatus($"Error inesperado al procesar el archivo: {ex.Message}", true);
             }
         }
-        private static readonly string[] separator = ["; "];
 
 
         /// <summary>

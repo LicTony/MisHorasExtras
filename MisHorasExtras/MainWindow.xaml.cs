@@ -196,7 +196,9 @@ namespace MisHorasExtras
                     // 3. Entradas que sean de sábado o domingo
                     var entradasFinDeSemana = entradas.Where(e => e.Fecha.DayOfWeek == DayOfWeek.Saturday ||
                                                                   e.Fecha.DayOfWeek == DayOfWeek.Sunday);
-                    AnalizarHuecosySolapamientosMismaFecha(erroresFilaG, entradasFinDeSemana.GroupBy(e => e.Fecha));
+
+                    // Se analiza el fin de semana: no puede haber solapamientos y como máximo un hueco.
+                    AnalizarHuecosySolapamientosMismaFechaFinDeSemana(erroresFilaG, entradasFinDeSemana.GroupBy(e => e.Fecha));
 
 
                     if (erroresFilaG.Count > 0)
@@ -223,6 +225,8 @@ namespace MisHorasExtras
                     else
                     {
                         SetStatus("Proceso completado sin errores. Todas las entradas son válidas.");
+
+                        //todo partiendo de  entradas generar la varible entradasResumen agrupandolas fechas tomando la hora desde menor y la hora hasta mayor separando la fecha en dos si hay huecos entre las horas  y luego volcarla a la pestaña Salida
                     }
 
 
@@ -291,6 +295,51 @@ namespace MisHorasExtras
                             errores.Add($"Hueco entre entradas en {entradaActual.Fecha.ToString("dd/MM/yyyy")}");
                         }
                     }                    
+                }
+            }
+        }
+
+        /// <summary>
+        /// Analiza solapamientos y más de un hueco en las entradas de fin de semana agrupadas por fecha.
+        /// </summary>
+        /// <param name="errores"></param>
+        /// <param name="entradasPorFecha"></param>
+        private static void AnalizarHuecosySolapamientosMismaFechaFinDeSemana(List<string> errores, IEnumerable<IGrouping<DateOnly, Entrada>> entradasPorFecha)
+        {
+            foreach (var grupoFecha in entradasPorFecha)
+            {
+                var entradasOrdenadas = grupoFecha.OrderBy(e => e.HoraDesde).ToList();
+                int huecosCount = 0;
+
+                for (int i = 0; i < entradasOrdenadas.Count; i++)
+                {
+                    var entradaActual = entradasOrdenadas[i];
+
+                    // Validar solapamiento con la siguiente entrada
+                    if (i < entradasOrdenadas.Count - 1)
+                    {
+                        var siguienteEntrada = entradasOrdenadas[i + 1];
+                        if (entradaActual.HoraHasta > siguienteEntrada.HoraDesde)
+                        {
+                            errores.Add($"Horario solapado con la siguiente entrada en {entradaActual.Fecha.ToString("dd/MM/yyyy")} (Fin de semana)");
+                        }
+                    }
+
+                    // Contar huecos entre entradas
+                    if (i > 0)
+                    {
+                        var entradaAnterior = entradasOrdenadas[i - 1];
+                        if (entradaActual.HoraDesde > entradaAnterior.HoraHasta)
+                        {
+                            huecosCount++;
+                        }
+                    }
+                }
+
+                // Si hay más de un hueco, registrar un error para esa fecha.
+                if (huecosCount > 1)
+                {
+                    errores.Add($"Más de un hueco entre entradas en {grupoFecha.Key.ToString("dd/MM/yyyy")} (Fin de semana)");
                 }
             }
         }

@@ -90,6 +90,7 @@ namespace MisHorasExtras
                         string celdaAFecha = excelManager.ObtenerValorCelda("Entrada", fila, 1) ?? ""; // Columna A
                         string celdaBHoraDesde = excelManager.ObtenerValorCelda("Entrada", fila, 2) ?? ""; // Columna B
                         string celdaCHoraHasta = excelManager.ObtenerValorCelda("Entrada", fila, 3) ?? ""; // Columna C
+                        string celdaDMotivo = excelManager.ObtenerValorCelda("Entrada", fila, 4) ?? ""; // Columna D
 
                         //Se limpia la variable de errores por fila
                         StringBuilder erroresFila = new();
@@ -152,7 +153,8 @@ namespace MisHorasExtras
                             {
                                 Fecha = DateOnly.FromDateTime(fecha),
                                 HoraDesde = horaDesde,
-                                HoraHasta = horaHasta
+                                HoraHasta = horaHasta,
+                                Detalle = celdaDMotivo
                             });
                         }
 
@@ -215,9 +217,6 @@ namespace MisHorasExtras
                         excelManager.EstablecerValorCelda("Entrada", rowCount + 1, 7, erroresActuales);
                     }
 
-
-                    // Guardar los cambios en el archivo Excel
-                    excelManager.Guardar();
                     if (flagHuboErrores)
                     {
                         SetStatus("Proceso completado con errores. Revise la columna F y la celda G" + (rowCount + 1).ToString() + " en la pestaña 'Entrada'.", true);
@@ -226,8 +225,143 @@ namespace MisHorasExtras
                     {
                         SetStatus("Proceso completado sin errores. Todas las entradas son válidas.");
 
-                        //todo partiendo de  entradas generar la varible entradasResumen agrupandolas fechas tomando la hora desde menor y la hora hasta mayor separando la fecha en dos si hay huecos entre las horas  y luego volcarla a la pestaña Salida
+                        // Generar resumen de entradas sin errores
+                        var entradasResumidas = new List<Entrada>();
+                        var entradasPorFecha = entradas.GroupBy(e => e.Fecha);
+
+                        foreach (var grupoFecha in entradasPorFecha)
+                        {
+                            var entradasOrdenadas = grupoFecha.OrderBy(e => e.HoraDesde).ToList();
+                            if (entradasOrdenadas.Count == 0) continue;
+
+                            var merged = new List<Entrada>();
+                            var currentMerge = new Entrada
+                            {
+                                Fecha = entradasOrdenadas.First().Fecha,
+                                HoraDesde = entradasOrdenadas.First().HoraDesde,
+                                HoraHasta = entradasOrdenadas.First().HoraHasta,
+                                Detalle = "" // Se construye durante la fusión
+                            };
+                            var motivos = new HashSet<string>();
+                            if (!string.IsNullOrWhiteSpace(entradasOrdenadas.First().Detalle))
+                            {
+                                motivos.Add(entradasOrdenadas.First().Detalle);
+                            }
+
+                            for (int i = 1; i < entradasOrdenadas.Count; i++)
+                            {
+                                var siguienteEntrada = entradasOrdenadas[i];
+                                if (siguienteEntrada.HoraDesde <= currentMerge.HoraHasta)
+                                {
+                                    if (siguienteEntrada.HoraHasta > currentMerge.HoraHasta)
+                                    {
+                                        currentMerge.HoraHasta = siguienteEntrada.HoraHasta;
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(siguienteEntrada.Detalle))
+                                    {
+                                        motivos.Add(siguienteEntrada.Detalle);
+                                    }
+                                }
+                                else
+                                {
+                                    currentMerge.Detalle = string.Join("; ", motivos);
+                                    merged.Add(currentMerge);
+
+                                    currentMerge = new Entrada
+                                    {
+                                        Fecha = siguienteEntrada.Fecha,
+                                        HoraDesde = siguienteEntrada.HoraDesde,
+                                        HoraHasta = siguienteEntrada.HoraHasta,
+                                        Detalle = ""
+                                    };
+                                    motivos.Clear();
+                                    if (!string.IsNullOrWhiteSpace(siguienteEntrada.Detalle))
+                                    {
+                                        motivos.Add(siguienteEntrada.Detalle);
+                                    }
+                                }
+                            }
+                            currentMerge.Detalle = string.Join("; ", motivos);
+                            merged.Add(currentMerge);
+                            entradasResumidas.AddRange(merged);
+                        }
+
+                        // Volcar a la pestaña Salida
+                        var hojaSalida = excelManager.ObtenerHojaDeTrabajo("Salida");
+                        hojaSalida.Clear(); // Limpiar la hoja entera
+
+                        // Escribir encabezados
+                        hojaSalida.Cell(1, 1).Value = "Dia";
+                        hojaSalida.Cell(1, 2).Value = "De";
+                        hojaSalida.Cell(1, 3).Value = "A";
+                        hojaSalida.Cell(1, 4).Value = "De";// siempre en blanco
+                        hojaSalida.Cell(1, 5).Value = "A"; //Seimpre en blanco
+                        hojaSalida.Cell(1, 6).Value = "De";
+                        hojaSalida.Cell(1, 7).Value = "A";
+                        hojaSalida.Cell(1, 8).Value = "50%";
+                        hojaSalida.Cell(1, 9).Value = "100%";
+                        hojaSalida.Cell(1, 10).Value = "Motivo";
+
+                        // Escribir datos
+                        int filaActual = 2;
+                        var entradasPorDia = entradasResumidas.GroupBy(e => e.Fecha).OrderBy(g => g.Key);
+
+                        foreach (var grupoDia in entradasPorDia)
+                        {
+                            var fecha = grupoDia.Key;
+                            var entradasDelDia = grupoDia.OrderBy(e => e.HoraDesde).ToList();
+
+                            hojaSalida.Cell(filaActual, 1).Value = fecha.ToString("dd/MM/yyyy");
+
+                            bool esFinDeSemana = fecha.DayOfWeek == DayOfWeek.Saturday || fecha.DayOfWeek == DayOfWeek.Sunday;
+
+                            if (esFinDeSemana)
+                            {
+                                if (entradasDelDia.Count > 0)
+                                {
+                                    hojaSalida.Cell(filaActual, 2).Value = entradasDelDia[0].HoraDesde.ToString("HH:mm");
+                                    hojaSalida.Cell(filaActual, 3).Value = entradasDelDia[0].HoraHasta.ToString("HH:mm");
+                                }
+                                if (entradasDelDia.Count > 1)
+                                {
+                                    hojaSalida.Cell(filaActual, 6).Value = entradasDelDia[1].HoraDesde.ToString("HH:mm");
+                                    hojaSalida.Cell(filaActual, 7).Value = entradasDelDia[1].HoraHasta.ToString("HH:mm");
+                                }
+                            }
+                            else // Lunes a Viernes
+                            {
+                                foreach (var entrada in entradasDelDia)
+                                {
+                                    if (entrada.HoraHasta <= new TimeOnly(9, 0))
+                                    {
+                                        hojaSalida.Cell(filaActual, 2).Value = entrada.HoraDesde.ToString("HH:mm");
+                                        hojaSalida.Cell(filaActual, 3).Value = entrada.HoraHasta.ToString("HH:mm");
+                                    }
+      
+                                    else if (entrada.HoraDesde >= new TimeOnly(16, 42))
+                                    {
+                                        hojaSalida.Cell(filaActual, 6).Value = entrada.HoraDesde.ToString("HH:mm");
+                                        hojaSalida.Cell(filaActual, 7).Value = entrada.HoraHasta.ToString("HH:mm");
+                                    }
+                                }
+                            }
+
+                            // Concatenar todos los motivos para el día
+                            var motivosDelDia = grupoDia.Select(e => e.Detalle)
+                                                        .Where(m => !string.IsNullOrWhiteSpace(m))
+                                                        .SelectMany(m => m.Split(separator, StringSplitOptions.RemoveEmptyEntries))
+                                                        .Distinct();
+                            hojaSalida.Cell(filaActual, 10).Value = string.Join("; ", motivosDelDia);
+
+                            filaActual++;
+                        }
+
+
                     }
+
+
+                    // Guardar los cambios en el archivo Excel
+                    excelManager.Guardar();
 
 
                     // Abrir el archivo Excel para que el usuario lo vea
@@ -258,6 +392,7 @@ namespace MisHorasExtras
                 SetStatus($"Error inesperado al procesar el archivo: {ex.Message}", true);
             }
         }
+        private static readonly string[] separator = ["; "];
 
 
         /// <summary>
@@ -281,7 +416,7 @@ namespace MisHorasExtras
                         var siguienteEntrada = entradasOrdenadas[i + 1];
                         if (entradaActual.HoraHasta > siguienteEntrada.HoraDesde)
                         {
-                            errores.Add($"Horario solapado con la siguiente entrada en {entradaActual.Fecha.ToString("dd/MM/yyyy")}");
+                            errores.Add($"Horario solapado con la siguiente entrada en {entradaActual.Fecha:dd/MM/yyyy}");
                         }
                     }
 
@@ -292,7 +427,7 @@ namespace MisHorasExtras
                         var entradaAnterior = entradasOrdenadas[i - 1];
                         if (entradaActual.HoraDesde > entradaAnterior.HoraHasta)
                         {
-                            errores.Add($"Hueco entre entradas en {entradaActual.Fecha.ToString("dd/MM/yyyy")}");
+                            errores.Add($"Hueco entre entradas en {entradaActual.Fecha:dd/MM/yyyy}");
                         }
                     }                    
                 }
@@ -321,7 +456,7 @@ namespace MisHorasExtras
                         var siguienteEntrada = entradasOrdenadas[i + 1];
                         if (entradaActual.HoraHasta > siguienteEntrada.HoraDesde)
                         {
-                            errores.Add($"Horario solapado con la siguiente entrada en {entradaActual.Fecha.ToString("dd/MM/yyyy")} (Fin de semana)");
+                            errores.Add($"Horario solapado con la siguiente entrada en {entradaActual.Fecha:dd/MM/yyyy} (Fin de semana)");
                         }
                     }
 
@@ -339,7 +474,7 @@ namespace MisHorasExtras
                 // Si hay más de un hueco, registrar un error para esa fecha.
                 if (huecosCount > 1)
                 {
-                    errores.Add($"Más de un hueco entre entradas en {grupoFecha.Key.ToString("dd/MM/yyyy")} (Fin de semana)");
+                    errores.Add($"Más de un hueco entre entradas en {grupoFecha.Key:dd/MM/yyyy} (Fin de semana)");
                 }
             }
         }
